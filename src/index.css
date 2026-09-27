@@ -1,0 +1,5 @@
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; min-height: 100vh; font-family: 'Segoe UI', Arial, sans-serif; background: #f4f7f7; }
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }

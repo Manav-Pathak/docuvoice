@@ -1,0 +1,22 @@
+{
+  "id": "personal_accident_claim",
+  "title": "Personal Accident Claim Form",
+  "description": "Offline demonstration schema for an individual accident insurance claim.",
+  "version": 1,
+  "fields": [
+    {"key": "policy_number", "label": "Policy number", "section": "Policy details", "required": true, "aliases": ["policy", "insurance policy"]},
+    {"key": "full_name", "label": "Full name", "section": "Claimant details", "required": true, "aliases": ["name", "claimant name", "insured name"]},
+    {"key": "date_of_birth", "label": "Date of birth", "section": "Claimant details", "field_type": "date", "required": true, "aliases": ["dob", "birth date"]},
+    {"key": "gender", "label": "Gender", "section": "Claimant details", "field_type": "select", "aliases": ["sex"]},
+    {"key": "pan_number", "label": "PAN number", "section": "Identity", "required": true, "aliases": ["pan", "permanent account number"]},
+    {"key": "aadhaar_number", "label": "Aadhaar number", "section": "Identity", "aliases": ["aadhaar", "aadhar", "uid number"]},
+    {"key": "address", "label": "Residential address", "section": "Contact details", "field_type": "textarea", "required": true, "aliases": ["address", "home address"]},
+    {"key": "pincode", "label": "Pincode", "section": "Contact details", "required": true, "aliases": ["pin code", "postal code", "zip code"]},
+    {"key": "phone_number", "label": "Phone number", "section": "Contact details", "required": true, "aliases": ["phone", "mobile", "mobile number"]},
+    {"key": "email", "label": "Email address", "section": "Contact details", "field_type": "email", "aliases": ["email", "mail id"]},
+    {"key": "incident_date", "label": "Date of incident", "section": "Incident details", "field_type": "date", "required": true, "aliases": ["incident date", "accident date"]},
+    {"key": "incident_place", "label": "Place of incident", "section": "Incident details", "required": true, "aliases": ["incident place", "accident location", "place"]},
+    {"key": "incident_description", "label": "Incident description", "section": "Incident details", "field_type": "textarea", "required": true, "aliases": ["description", "what happened", "incident details"]},
+    {"key": "claim_amount", "label": "Claim amount", "section": "Claim details", "aliases": ["amount", "claim value"]}
+  ]
+}

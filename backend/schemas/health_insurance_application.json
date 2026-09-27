@@ -1,0 +1,22 @@
+{
+  "id": "health_insurance_application",
+  "title": "Health Insurance Application",
+  "description": "Offline demonstration schema for an individual health insurance proposal.",
+  "version": 1,
+  "fields": [
+    {"key": "full_name", "label": "Applicant name", "section": "Applicant", "required": true, "aliases": ["name", "full name", "applicant name"]},
+    {"key": "date_of_birth", "label": "Date of birth", "section": "Applicant", "field_type": "date", "required": true, "aliases": ["dob", "birth date"]},
+    {"key": "gender", "label": "Gender", "section": "Applicant", "field_type": "select", "required": true, "aliases": ["sex"]},
+    {"key": "pan_number", "label": "PAN number", "section": "Identity", "required": true, "aliases": ["pan", "permanent account number"]},
+    {"key": "aadhaar_number", "label": "Aadhaar number", "section": "Identity", "aliases": ["aadhaar", "aadhar"]},
+    {"key": "address", "label": "Residential address", "section": "Contact", "field_type": "textarea", "required": true, "aliases": ["address", "home address"]},
+    {"key": "pincode", "label": "Pincode", "section": "Contact", "required": true, "aliases": ["pin code", "postal code"]},
+    {"key": "phone_number", "label": "Phone number", "section": "Contact", "required": true, "aliases": ["phone", "mobile number"]},
+    {"key": "email", "label": "Email address", "section": "Contact", "field_type": "email", "aliases": ["email", "mail id"]},
+    {"key": "occupation", "label": "Occupation", "section": "Coverage", "required": true, "aliases": ["job", "profession"]},
+    {"key": "annual_income", "label": "Annual income", "section": "Coverage", "aliases": ["income", "yearly income"]},
+    {"key": "coverage_amount", "label": "Requested coverage", "section": "Coverage", "required": true, "aliases": ["sum insured", "coverage", "cover amount"]},
+    {"key": "nominee_name", "label": "Nominee name", "section": "Nominee", "required": true, "aliases": ["nominee"]},
+    {"key": "nominee_relationship", "label": "Relationship to nominee", "section": "Nominee", "required": true, "aliases": ["nominee relationship", "relationship"]}
+  ]
+}
