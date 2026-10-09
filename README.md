@@ -29,10 +29,23 @@ An accident is not inferred from a policy. A supporting note can use labels such
 as `Accident Date`, `Accident Time: 09:30 PM`, `Accident Place`, `Cause of Damage`,
 `Number of Occupants`, `Occupant Names`, `Estimated Repair Cost`, `Claimed Amount`,
 `Accident Description`, `Driver Relationship`, `Under Influence`, and declaration
-date/place. Hospital and third-party details require manual input. Full addresses
+date/place. Third-party details require manual input. Full addresses
 and descriptions map to the first corresponding PDF line; second-line widgets
 are not automatically duplicated. Multiple applicable licence classes remain
 choices for the user rather than selecting one automatically.
+
+Labelled hospital admission notes and provisional estimates also support health
+claim intimation: patient and policyholder names, separate DOB boxes, age,
+residential address, policy/card numbers, admission date, hospital/provider
+details, diagnosis, planned treatment, estimated expenses and stay, and patient,
+intimating-person and admitting-doctor contacts. Combined labels and wrapped
+values are supported; expense-table amounts are matched by their coordinates.
+Document issue date/place supply the demo declaration fields for review.
+Hospital/doctor names, city, pincode and medical-cost breakdown can also map into
+motor forms. Actual hospitalization days and ambulance reimbursement require
+explicit source labels; an estimate does not supply actual days or a claimed
+amount. Addresses that exceed motor-form boxes still require shortening before
+export.
 
 ## Run locally
 

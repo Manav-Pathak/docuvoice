@@ -73,6 +73,15 @@ class FormSchemaService:
     def _candidates_for(
         source_key: str, values_by_key: dict[str, list[tuple[str, object]]]
     ) -> list[tuple[str, object]]:
+        if source_key == "hospital_doctor_name_address":
+            result = []
+            for filename, candidate in values_by_key.get("provider_name", []):
+                doctor = next((c.normalized_value for _, c in values_by_key.get("admitting_doctor_details", [])
+                               if c.evidence and candidate.evidence and c.evidence[0].document_id == candidate.evidence[0].document_id), "")
+                doctor = re.split(r"\s+-\s+(?:Department|Dept)\b", doctor, maxsplit=1, flags=re.IGNORECASE)[0]
+                value = f"{doctor}; {candidate.normalized_value}" if doctor else candidate.normalized_value
+                result.append((filename, candidate.model_copy(update={"normalized_value": value})))
+            return result
         if source_key == "insured_full_name":
             return values_by_key.get(source_key, []) or values_by_key.get("full_name", [])
         if source_key == "driver_full_name":
@@ -88,17 +97,22 @@ class FormSchemaService:
             return values_by_key.get(source_key, []) + values_by_key.get("address", [])
         if source_key in {"driver_city", "driver_pincode", "driver_email", "driver_phone_number"}:
             return values_by_key.get(source_key, []) or values_by_key.get(source_key.removeprefix("driver_"), [])
-        if source_key not in {"first_name", "last_name"}:
+        name_sources = {
+            "first_name": "full_name", "last_name": "full_name",
+            "policyholder_first_name": "policyholder_full_name", "policyholder_last_name": "policyholder_full_name",
+            "patient_first_name": "patient_full_name", "patient_last_name": "patient_full_name",
+        }
+        if source_key not in name_sources:
             return values_by_key.get(source_key, [])
 
         transformed: list[tuple[str, object]] = []
-        for filename, candidate in values_by_key.get("full_name", []):
+        for filename, candidate in values_by_key.get(name_sources[source_key], []):
             if not isinstance(candidate, ExtractedField):
                 continue
             parts = candidate.normalized_value.split()
             if not parts:
                 continue
-            if source_key == "last_name":
+            if source_key.endswith("last_name"):
                 value = parts[-1]
             else:
                 value = " ".join(parts[:-1]) if len(parts) > 1 else parts[0]

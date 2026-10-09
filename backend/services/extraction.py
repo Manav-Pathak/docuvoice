@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from backend.models import ExtractedField, FieldEvidence, OCRFragment, ProcessedDocument
 from backend.services.field_rules import LABELS, LabelReader, label_pattern
+from backend.services.medical_extraction import extract_medical
 from backend.services.ocr import OCRResult
 from backend.services.validation import normalize_digits, normalize_name
 
@@ -37,7 +38,9 @@ class LocalDocumentExtractor:
         text = ocr.text
         upper = text.upper()
         reader = LabelReader(text, ocr.fragments)
-        if "POLICY" in upper and ("INSURANCE" in upper or "INSURED" in upper):
+        if "ADMISSION" in upper and re.search(r"DIAGNOSIS|TREATMENT|CLINICAL", upper):
+            document_type = "medical_admission"
+        elif "POLICY" in upper and ("INSURANCE" in upper or "INSURED" in upper):
             document_type = "insurance_policy"
         elif re.search(r"DRIVING LICEN[CS]E|\bDL\s*NO\b", upper):
             document_type = "driving_license"
@@ -76,7 +79,7 @@ class LocalDocumentExtractor:
 
         if match := PAN_SEARCH.search(text):
             add("pan_number", match.group(0), re.sub(r"\s", "", match.group(0)).upper())
-        if document_type not in {"insurance_policy", "driving_license"} and (match := AADHAAR_SEARCH.search(text)):
+        if document_type not in {"insurance_policy", "driving_license", "medical_admission"} and (match := AADHAAR_SEARCH.search(text)):
             digits = "".join(match.groups())
             add("aadhaar_number", match.group(0), digits)
         dob = reader.find(LABELS["date_of_birth"], lambda v: bool(DATE_SEARCH.search(v)))
@@ -151,6 +154,8 @@ class LocalDocumentExtractor:
         self._extract_motor_fields(reader, document_type, add)
         if document_type == "driving_license" and "date_of_birth" in fields:
             add("driver_date_of_birth", fields["date_of_birth"].value, fields["date_of_birth"].normalized_value)
+        if document_type == "medical_admission":
+            extract_medical(reader, add, self._address_components)
 
         return ProcessedDocument(
             id=document_id,

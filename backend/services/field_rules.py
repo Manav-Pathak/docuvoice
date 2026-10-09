@@ -48,6 +48,34 @@ LABELS = {
     "authorized_vehicle_type": r"authori[sz]ed vehicle (?:type|class)|vehicle class|class of vehicle|cov",
     "declaration_date": r"declaration date",
     "declaration_place": r"declaration place",
+    "patient_full_name": r"patient(?: full)? name|name of (?:the )?(?:patient|person admitted)",
+    "policyholder_full_name": r"policy\s*holder(?: full)? name|name of (?:the )?policy\s*holder",
+    "patient_dob_age": r"dob\s*/\s*age(?:\s*/\s*sex)?|patient (?:date of birth|dob)",
+    "patient_address": r"residential address|patient address",
+    "patient_city_state_pin": r"city\s*/\s*state\s*/\s*(?:pincode|pin code)",
+    "patient_contact": r"patient contact(?: number)?|patient (?:phone|mobile)",
+    "policy_card_number": r"policy\s*/\s*card number",
+    "card_number": r"card number|member(?:ship)? (?:id|number)",
+    "admission_date": r"admission date(?:\s*/\s*time)?|date of admission|date of loss / treatment / event / admission",
+    "reason_for_admission": r"reason for admission",
+    "provisional_diagnosis": r"provisional diagnosis|diagnosis",
+    "treatment_planned": r"planned treatment|treatment planned",
+    "estimated_stay_days": r"estimated (?:length of stay|stay days)(?:\s*\(.*\))?",
+    "hospitalization_days": r"hospitalization days|number of days of hospitalization",
+    "admitting_doctor_details": r"admitting doctor(?: details)?",
+    "hospital_provider": r"hospital\s*/\s*provider id",
+    "provider_name": r"hospital name|provider name",
+    "provider_id": r"provider (?:id|unique id)|hospital id|unique id of provider(?:, if any)?",
+    "provider_address": r"hospital address|provider address(?: in case of non network)?",
+    "provider_city": r"hospital city|provider city",
+    "provider_state": r"hospital state|provider state",
+    "provider_pincode": r"hospital (?:pin|pincode)|provider (?:pin|pincode)",
+    "estimated_expenses": r"total estimated medical expenses|estimated medical expenses|estimated expenses",
+    "medical_cost_breakdown": r"medical cost breakdown|breakup of medical costs",
+    "ambulance_reimbursement": r"ambulance (?:charges|reimbursement)",
+    "intimating_person_details": r"contact\s*/\s*relationship|intimating person(?:s| details)?",
+    "intimating_phone": r"contact phone|intimating person phone",
+    "document_date_place": r"issue date\s*/\s*place",
 }
 
 ALL_LABELS = "|".join(f"(?:{pattern})" for pattern in LABELS.values())
@@ -136,6 +164,45 @@ class LabelReader:
                 value = self.trim(self.lines[index + 1])
             if value and not STOP.match(value) and accept(value):
                 return value
+        return None
+
+    def block(self, labels: str) -> str | None:
+        """Read wrapped values until the next label in the same label column."""
+        pattern = label_pattern(labels)
+        for anchor in self.fragments:
+            match = pattern.match(anchor.text)
+            if not match or not anchor.bbox:
+                continue
+            inline = match[1].strip()
+            neighbors = self.neighbors(anchor)
+            initial = anchor if inline else (neighbors[0] if neighbors else None)
+            if initial is None or (not inline and STOP.match(initial.text)):
+                continue
+            value = inline or initial.text.strip()
+            height = max(anchor.bbox[3] - anchor.bbox[1], 1)
+            boundaries = [f.bbox[1] for f in self.fragments if f.bbox
+                          and self._same_region(anchor, f)
+                          and f.bbox[1] > anchor.bbox[1] + height * 0.7
+                          and abs(f.bbox[0] - anchor.bbox[0]) <= height * 3
+                          and (STOP.match(f.text) or re.fullmatch(r"\d{2}\s+[A-Z][A-Z /&]+", f.text))]
+            limit = min(boundaries) if boundaries else anchor.bbox[1] + height * 12
+            continuation = [f.text.strip() for f in self.fragments if f.bbox
+                            and self._same_region(initial, f)
+                            and initial.bbox[1] + height * 0.7 < f.bbox[1] < limit - height * 0.4
+                            and abs(f.bbox[0] - initial.bbox[0]) <= height * 3]
+            return " ".join([value, *continuation])
+        # Text-only callers still have label boundaries, even without coordinates.
+        for index, line in enumerate(self.lines):
+            match = pattern.match(line)
+            if not match:
+                continue
+            parts = [match[1].strip()] if match[1].strip() else []
+            for following in self.lines[index + 1:]:
+                if STOP.match(following) or re.fullmatch(r"\d{2}\s+[A-Z][A-Z /&]+", following):
+                    break
+                if following.strip():
+                    parts.append(following.strip())
+            return " ".join(parts) or None
         return None
 
     def address(self, labels: str) -> str | None:

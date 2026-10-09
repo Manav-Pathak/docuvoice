@@ -48,6 +48,32 @@ def _semantic_key(field_name: str, label: str) -> str | None:
     tokens = set(normalized.split("_"))
     unrelated_party = {"provider", "hospital", "garage", "surveyor", "third", "party"}
 
+    medical_keys = {
+        "card_number": "card_number",
+        "policyholder_first_name": "policyholder_first_name",
+        "policyholder_last_name": "policyholder_last_name",
+        "admitted_person_first_name": "patient_first_name",
+        "admitted_person_last_name": "patient_last_name",
+        "admitted_dob_day": "patient_dob_day",
+        "admitted_dob_month": "patient_dob_month",
+        "admitted_dob_year": "patient_dob_year",
+        "admitted_age_years": "patient_age_years",
+        "loss_treatment_event_admission_date": "admission_date",
+        "provider_id": "provider_id", "provider_name": "provider_name",
+        "provider_address": "provider_address", "provider_city": "provider_city",
+        "provider_state": "provider_state", "provider_pin": "provider_pincode",
+        "provisional_diagnosis": "provisional_diagnosis", "treatment_planned": "treatment_planned",
+        "estimated_expenses": "estimated_expenses", "estimated_stay_days": "estimated_stay_days",
+        "contact_details": "contact_details", "intimating_person_details": "intimating_person_details",
+        "admitting_doctor_details": "admitting_doctor_details",
+        "hospital_doctor_name_address_line_1": "hospital_doctor_name_address",
+        "hospital_city": "provider_city", "hospital_pin": "provider_pincode",
+        "medical_cost_breakdown": "medical_cost_breakdown",
+        "hospitalization_days": "hospitalization_days", "ambulance_reimbursement": "ambulance_reimbursement",
+    }
+    if key := medical_keys.get(_safe_key(field_name)):
+        return key
+
     if tokens & unrelated_party or "nominee" in tokens:
         return None
     # Multi-line widgets retain their original names. Populate only the first
@@ -276,7 +302,7 @@ class PDFGenerationService:
             tooltip = str(field.get("/TU") or field.get("/TM") or "").strip()
             label = tooltip or _humanize(name)
             semantic_key = _semantic_key(name, label)
-            if semantic_key in {"date_of_birth", "driver_date_of_birth", "license_expiry_date", "accident_date", "declaration_date"} and field_type == "text":
+            if semantic_key in {"date_of_birth", "driver_date_of_birth", "license_expiry_date", "accident_date", "declaration_date", "admission_date"} and field_type == "text":
                 field_type = "date"
             elif semantic_key == "email" and field_type == "text":
                 field_type = "email"
@@ -394,6 +420,23 @@ class PDFGenerationService:
                             widget.field_value = "Off"
                     else:
                         widget.field_value = value
+                        if name in {"provisional_diagnosis", "treatment_planned", "medical_cost_breakdown",
+                                    "intimating_person_details", "admitting_doctor_details"}:
+                            # Fit complete medical narratives into the template's short rows.
+                            font = pymupdf.Font("helv")
+                            size = min(widget.text_fontsize or 9, 9)
+                            while size > 5:
+                                lines, width = 1, 0.0
+                                for word in value.split():
+                                    word_width = font.text_length(word + " ", fontsize=size)
+                                    if width and width + word_width > widget.rect.width - 4:
+                                        lines += 1
+                                        width = 0.0
+                                    width += word_width
+                                if lines * size * 1.3 + 4 <= widget.rect.height:
+                                    break
+                                size -= 0.5
+                            widget.text_fontsize = size
                     widget.update()
                     updated_fields.add(name)
 
