@@ -7,6 +7,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+backend/docs
+backend/forms
+/tmp
+/output
+
 node_modules
 dist
 dist-ssr
@@ -20,6 +25,9 @@ __pycache__
 .ruff_cache
 .uv-cache
 *.pyc
+
+# Local project handoff for coding assistants
+/LLM_CONTEXT_HANDOFF.md
 
 # Editor directories and files
 .vscode/*

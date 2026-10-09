@@ -25,7 +25,7 @@ class OCRResult:
 
 
 class LocalOCRService:
-    """Extracts digital PDF text first and loads PaddleOCR only when needed."""
+    """Reads PDF text directly and runs PaddleOCR only on raster images."""
 
     detection_model_name = "PP-OCRv4_mobile_det"
     recognition_model_name = "en_PP-OCRv4_mobile_rec"
@@ -67,34 +67,56 @@ class LocalOCRService:
         except Exception as exc:
             raise ValueError("The uploaded PDF could not be opened.") from exc
 
-        digital_fragments: list[OCRFragment] = []
-        for page_number, page in enumerate(document, start=1):
-            blocks = page.get_text("blocks")
-            for block in blocks:
-                text = " ".join(str(block[4]).split())
-                if text:
-                    digital_fragments.append(
-                        OCRFragment(
-                            text=text,
-                            confidence=None,
-                            page=page_number,
-                            bbox=[float(value) for value in block[:4]],
+        fragments: list[OCRFragment] = []
+        has_digital_text = False
+        has_images = False
+        with document:
+            for page_number, page in enumerate(document, start=1):
+                for block_index, block in enumerate(page.get_text("dict")["blocks"]):
+                    if block["type"] == 1:
+                        has_images = True
+                        result = self._extract_image(block["image"], page_number)
+                        # PDF image transforms map the unit square to the page.
+                        # OCR boxes are measured in pixels of the extracted image.
+                        transform = pymupdf.Matrix(
+                            1 / block["width"], 1 / block["height"]
+                        ) * pymupdf.Matrix(*block["transform"])
+                        for fragment in result.fragments:
+                            bbox = (
+                                list(pymupdf.Rect(fragment.bbox) * transform)
+                                if fragment.bbox is not None
+                                else list(block["bbox"])
+                            )
+                            fragments.append(fragment.model_copy(update={
+                                "bbox": bbox,
+                                "region_id": f"page-{page_number}-image-{block_index}",
+                            }))
+                        continue
+                    for line in block.get("lines", []):
+                        text = " ".join(
+                            "".join(span["text"] for span in line["spans"]).split()
                         )
-                    )
-
-        digital_text = "\n".join(fragment.text for fragment in digital_fragments)
-        if len("".join(digital_text.split())) >= 30:
-            return OCRResult(digital_text, digital_fragments, "digital_pdf_text")
-
-        ocr_fragments: list[OCRFragment] = []
-        for page_number, page in enumerate(document, start=1):
-            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
-            result = self._extract_image(pixmap.tobytes("png"), page_number)
-            ocr_fragments.extend(result.fragments)
+                        if text:
+                            has_digital_text = True
+                            fragments.append(
+                                OCRFragment(
+                                    text=text,
+                                    confidence=None,
+                                    page=page_number,
+                                    bbox=[float(value) for value in line["bbox"]],
+                                    region_id=f"page-{page_number}-text",
+                                )
+                            )
+        fragments.sort(key=lambda fragment: (
+            fragment.page, (fragment.bbox or [0, 0])[1], (fragment.bbox or [0, 0])[0],
+        ))
+        method = (
+            "digital_pdf_text+paddleocr"
+            if has_digital_text and has_images
+            else "paddleocr" if has_images else "digital_pdf_text"
+        )
         return OCRResult(
-            "\n".join(fragment.text for fragment in ocr_fragments),
-            ocr_fragments,
-            "paddleocr",
+            "\n".join(fragment.text for fragment in fragments), fragments, method,
         )
 
     def _build_engine(self):

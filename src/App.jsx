@@ -26,9 +26,7 @@ async function api(path, options = {}) {
 
 function App() {
   const [session, setSession] = useState(null)
-  const [forms, setForms] = useState([])
   const [health, setHealth] = useState(null)
-  const [selectedSchema, setSelectedSchema] = useState(null)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -36,15 +34,16 @@ function App() {
   const [isRecording, setIsRecording] = useState(false)
   const [dark, setDark] = useState(false)
   const fileInput = useRef(null)
+  const formInput = useRef(null)
   const recorder = useRef(null)
   const audioChunks = useRef([])
+  const fieldEditBaseline = useRef(new Map())
 
   useEffect(() => {
     async function bootstrap() {
       try {
-        const [healthData, formData, sessionData] = await Promise.all([
+        const [healthData, sessionData] = await Promise.all([
           api('/api/health'),
-          api('/api/forms'),
           api('/api/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -52,9 +51,7 @@ function App() {
           }),
         ])
         setHealth(healthData)
-        setForms(formData)
         setSession(sessionData)
-        setSelectedSchema(formData[0] || null)
       } catch (err) {
         setError(`Could not reach the local DocuVoice backend. ${err.message}`)
       }
@@ -62,10 +59,7 @@ function App() {
     bootstrap()
   }, [])
 
-  const schema = useMemo(
-    () => forms.find((item) => item.id === session?.form?.schema_id) || selectedSchema,
-    [forms, session, selectedSchema],
-  )
+  const schema = session?.form_schema || null
   const requiredCount = schema?.fields.filter((field) => field.required).length || 0
   const completedRequired = schema?.fields.filter(
     (field) => field.required && session?.form?.fields[field.key]?.value?.trim(),
@@ -111,17 +105,15 @@ function App() {
     }
   }
 
-  async function selectForm(formSchema = selectedSchema) {
-    if (!session || !formSchema) return
-    begin('form')
+  async function uploadForm(file) {
+    if (!session || !file) return
+    begin('form-upload')
     try {
-      const updated = await api(`/api/sessions/${session.id}/form`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schema_id: formSchema.id }),
-      })
+      const body = new FormData()
+      body.append('file', file)
+      const updated = await api(`/api/sessions/${session.id}/form-template`, { method: 'POST', body })
       setSession(updated)
-      setNotice('Form mapped using the local schema.')
+      setNotice(`${updated.uploaded_form.field_count} AcroForm fields discovered and mapped locally.`)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -265,10 +257,10 @@ function App() {
 
       <main id="top">
         <section className="hero-section">
-          <div className="eyebrow"><Sparkles size={14} /> Private by design · works offline</div>
+          {/* <div className="eyebrow"><Sparkles size={14} /> Private by design · works offline</div> */}
           <h1>Documents in. <span>Forms complete.</span></h1>
           <p>Extract identity details locally, review every source, and complete insurance forms with your voice.</p>
-          <div className="privacy-line"><ShieldCheck size={17} /> Your documents stay on this computer in offline mode.</div>
+          <div className="privacy-line"><ShieldCheck size={17} /> Your documents stay on this computer</div>
         </section>
 
         {error && <div className="alert error"><AlertTriangle size={18} /><span>{error}</span><button onClick={() => setError('')}><X size={16} /></button></div>}
@@ -299,15 +291,32 @@ function App() {
           </section>
 
           <section className="panel form-choice">
-            <div className="panel-heading"><div><span className="step-number">2</span><div><h2>Choose a form</h2><p>Stored locally and ready without internet</p></div></div></div>
-            <div className="form-options">
-              {forms.map((item) => (
-                <button key={item.id} className={selectedSchema?.id === item.id ? 'form-option selected' : 'form-option'} onClick={() => setSelectedSchema(item)}>
-                  <span><FileText size={21} /></span><div><strong>{item.title}</strong><small>{item.fields.length} mapped fields</small></div><i>{selectedSchema?.id === item.id && <Check size={14} />}</i>
-                </button>
-              ))}
+            <div className="panel-heading"><div><span className="step-number">2</span><div><h2>Upload the form</h2><p>AcroForm PDF with fillable fields</p></div></div><span className="local-badge"><FileCheck2 size={13} /> AcroForm</span></div>
+            <div
+              className={`form-dropzone ${session?.uploaded_form ? 'has-form' : ''}`}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => { event.preventDefault(); uploadForm(event.dataTransfer.files[0]) }}
+              onClick={() => formInput.current?.click()}
+              role="button"
+              tabIndex="0"
+            >
+              <input ref={formInput} type="file" accept=".pdf,application/pdf" hidden onChange={(event) => uploadForm(event.target.files[0])} />
+              {session?.uploaded_form ? (
+                <>
+                  <span className="form-ready-icon"><Check size={18} /></span>
+                  <strong>{session.uploaded_form.filename}</strong>
+                  <small>{session.uploaded_form.page_count} page{session.uploaded_form.page_count !== 1 ? 's' : ''} · {session.uploaded_form.field_count} fillable fields</small>
+                  <em>Click or drop another PDF to replace it</em>
+                </>
+              ) : (
+                <>
+                  <span className="upload-icon">{busy === 'form-upload' ? <RefreshCw className="spin" /> : <Upload />}</span>
+                  <strong>{busy === 'form-upload' ? 'Inspecting form…' : 'Drop an AcroForm PDF here'}</strong>
+                  <small>Flat PDFs are not supported in this phase</small>
+                </>
+              )}
             </div>
-            <button className="primary-button" onClick={() => selectForm()} disabled={!session || !!busy}>{busy === 'form' ? <RefreshCw className="spin" size={17} /> : <Sparkles size={17} />}Map document details</button>
+            <p className="form-help">Field names, tooltips, types, options and required flags are read directly from the PDF. Recognized identity values are mapped without changing the original layout.</p>
           </section>
         </div>
 
@@ -315,7 +324,10 @@ function App() {
           <section className="review-shell">
             <div className="review-header">
               <div><span className="step-number">3</span><div><h2>Review and complete</h2><p>{schema.title}</p></div></div>
-              <div className="progress-wrap"><span>{completion}% required fields complete</span><div><i style={{ width: `${completion}%` }} /></div></div>
+              <div className="progress-wrap">
+                <span>{requiredCount ? `${completion}% required fields complete` : `${schema.fields.length} fillable fields discovered`}</span>
+                <div><i style={{ width: `${requiredCount ? completion : 100}%` }} /></div>
+              </div>
             </div>
             <div className="review-grid">
               <div className="fields-column">
@@ -326,20 +338,76 @@ function App() {
                       {fields.map((field) => {
                         const value = session.form.fields[field.key]
                         const issue = session.form.validation_issues.find((item) => item.field === field.key)
-                        const updateLocal = (event) => setSession((current) => ({ ...current, form: { ...current.form, fields: { ...current.form.fields, [field.key]: { ...value, value: event.target.value } } } }))
-                        const common = { id: `field-${field.key}`, value: value.value, onChange: updateLocal, onBlur: (event) => updateField(field.key, event.target.value) }
+                        const setLocalValue = (nextValue) => setSession((current) => ({ ...current, form: { ...current.form, fields: { ...current.form.fields, [field.key]: { ...value, value: nextValue } } } }))
+                        const updateLocal = (event) => {
+                          if (!fieldEditBaseline.current.has(field.key)) fieldEditBaseline.current.set(field.key, value.value)
+                          setLocalValue(event.target.value)
+                        }
+                        const commitEdit = (event) => {
+                          if (!fieldEditBaseline.current.has(field.key)) return
+                          const original = fieldEditBaseline.current.get(field.key)
+                          fieldEditBaseline.current.delete(field.key)
+                          if (event.target.value.trim() !== original.trim()) updateField(field.key, event.target.value)
+                        }
+                        const common = { id: `field-${field.key}`, name: `docuvoice_${field.key}`, autoComplete: 'off', value: value.value, disabled: field.read_only, maxLength: field.max_length || undefined, onChange: updateLocal, onBlur: commitEdit }
                         return (
-                          <label key={field.key} className={field.field_type === 'textarea' ? 'wide' : ''}>
-                            <span>{field.label}{field.required && <b>*</b>}</span>
-                            {field.field_type === 'textarea' ? <textarea {...common} /> : <input {...common} type={field.field_type === 'email' ? 'email' : 'text'} />}
+                          <div key={field.key} className={`field-control ${field.field_type === 'textarea' ? 'wide' : ''}`}>
+                            <label htmlFor={`field-${field.key}`}>{field.label}{field.required && <b>*</b>}</label>
+                            {value.options?.length > 1 && (
+                              <div className="conflict-picker" role="radiogroup" aria-label={`Available values for ${field.label}`}>
+                                <strong>Choose a value found in your documents</strong>
+                                {value.options.map((option) => {
+                                  const sourceNames = [...new Set(option.evidence.map((item) => item.document_name))]
+                                  const selected = value.value === option.value
+                                  return (
+                                    <button
+                                      type="button"
+                                      role="radio"
+                                      aria-checked={selected}
+                                      className={selected ? 'conflict-option selected' : 'conflict-option'}
+                                      key={`${field.key}-${option.value}`}
+                                      onClick={() => updateField(field.key, option.value)}
+                                    >
+                                      <i>{selected && <Check size={12} />}</i>
+                                      <span><b>{option.value}</b><small>From {sourceNames.join(', ')}</small></span>
+                                    </button>
+                                  )
+                                })}
+                                <small className="custom-value-hint">Or enter a different value below</small>
+                              </div>
+                            )}
+                            {field.field_type === 'textarea' && <textarea {...common} />}
+                            {(field.field_type === 'select' || field.field_type === 'radio') && (
+                              <select {...common}>
+                                <option value="">Select a value</option>
+                                {field.options.map((option) => <option value={option} key={option}>{option}</option>)}
+                              </select>
+                            )}
+                            {field.field_type === 'checkbox' && (
+                              <label className="checkbox-control">
+                                <input
+                                  id={`field-${field.key}`}
+                                  type="checkbox"
+                                  disabled={field.read_only}
+                                  checked={Boolean(value.value)}
+                                  onChange={(event) => {
+                                    const nextValue = event.target.checked ? (field.options[0] || 'true') : ''
+                                    setLocalValue(nextValue)
+                                    updateField(field.key, nextValue)
+                                  }}
+                                />
+                                <span>{value.value ? 'Selected' : 'Not selected'}</span>
+                              </label>
+                            )}
+                            {!['textarea', 'select', 'radio', 'checkbox'].includes(field.field_type) && <input {...common} type={field.field_type === 'email' ? 'email' : 'text'} />}
                             <small className={value.source === 'conflict' ? 'source conflict' : 'source'}>
                               {value.source === 'document' && <><FileCheck2 size={12} /> From {value.source_document_name}{value.confidence != null ? ` · OCR ${Math.round(value.confidence * 100)}%` : ''}</>}
-                              {value.source === 'user' && <><Check size={12} /> Confirmed by you</>}
+                              {value.source === 'user' && <><Check size={12} /> {value.source_document_name ? `Selected by you from ${value.source_document_name}` : 'Entered and confirmed by you'}</>}
                               {value.source === 'conflict' && <><AlertTriangle size={12} /> Conflicting document values — review required</>}
                               {value.source === 'empty' && 'Not found in uploaded documents'}
                             </small>
                             {issue && <small className={`inline-issue ${issue.severity}`}>{issue.message}</small>}
-                          </label>
+                          </div>
                         )
                       })}
                     </div>
@@ -362,7 +430,7 @@ function App() {
           </section>
         )}
       </main>
-      <footer><span><ShieldCheck size={15} /> Local-first document processing</span><span>DocuVoice · College demonstration · fabricated data only</span></footer>
+      <footer><span><ShieldCheck size={15} /> Local-first document processing</span></footer>
     </div>
   )
 }

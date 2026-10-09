@@ -41,6 +41,8 @@ class LocalIntentParser:
         aliases: list[tuple[str, str]] = []
         for field in schema.fields:
             candidates = [field.label, field.key.replace("_", " "), *field.aliases]
+            if field.semantic_key:
+                candidates.append(field.semantic_key.replace("_", " "))
             aliases.extend((candidate.lower(), field.key) for candidate in candidates)
         aliases.sort(key=lambda item: len(item[0]), reverse=True)
 

@@ -27,6 +27,7 @@ class OCRFragment(BaseModel):
     confidence: float | None = None
     page: int = 1
     bbox: list[float] | None = None
+    region_id: str | None = None
 
 
 class FieldEvidence(BaseModel):
@@ -35,6 +36,11 @@ class FieldEvidence(BaseModel):
     raw_value: str
     extraction_method: str = "local_rules"
     ocr_score: float | None = None
+
+
+class FieldOption(BaseModel):
+    value: str
+    evidence: list[FieldEvidence] = Field(default_factory=list)
 
 
 class ExtractedField(BaseModel):
@@ -64,7 +70,11 @@ class FormFieldDefinition(BaseModel):
     field_type: str = "text"
     required: bool = False
     aliases: list[str] = Field(default_factory=list)
+    semantic_key: str | None = None
     pdf_field_name: str | None = None
+    options: list[str] = Field(default_factory=list)
+    read_only: bool = False
+    max_length: int | None = None
     coordinates: dict[str, float] | None = None
 
 
@@ -82,6 +92,7 @@ class FormValue(BaseModel):
     source_document_id: str | None = None
     source_document_name: str | None = None
     confidence: float | None = None
+    options: list[FieldOption] = Field(default_factory=list)
     updated_at: datetime = Field(default_factory=utc_now)
 
 
@@ -100,11 +111,21 @@ class FormState(BaseModel):
     validation_issues: list[ValidationIssue] = Field(default_factory=list)
 
 
+class UploadedFormTemplate(BaseModel):
+    filename: str
+    media_type: str = "application/pdf"
+    page_count: int
+    field_count: int
+    size_bytes: int
+
+
 class SessionState(BaseModel):
     id: str
     mode: OperatingMode = OperatingMode.OFFLINE
     documents: list[ProcessedDocument] = Field(default_factory=list)
     form: FormState | None = None
+    form_schema: FormSchema | None = None
+    uploaded_form: UploadedFormTemplate | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

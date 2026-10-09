@@ -24,6 +24,7 @@ from backend.models import (
     SelectFormRequest,
     SessionState,
     UpdateFieldRequest,
+    UploadedFormTemplate,
     VoiceCommandRequest,
     VoiceCommandResult,
 )
@@ -31,7 +32,7 @@ from backend.services.extraction import LocalDocumentExtractor
 from backend.services.forms import FormSchemaService
 from backend.services.ocr import LocalOCRService, OCRResult, OCRUnavailableError
 from backend.services.online import OptionalGeminiService
-from backend.services.pdf import PDFGenerationService
+from backend.services.pdf import AcroFormError, PDFGenerationService
 from backend.services.validation import validate_form
 from backend.services.voice import FasterWhisperService, LocalIntentParser
 from backend.state import session_store
@@ -53,6 +54,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def schema_for_session(state: SessionState):
+    if state.form_schema is not None:
+        return state.form_schema
+    if state.form is not None:
+        return form_service.get(state.form.schema_id)
+    raise HTTPException(status_code=409, detail="Upload a form before continuing.")
 
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -122,7 +131,7 @@ async def upload_document(
     def add_document(state):
         state.documents.append(document)
         if state.form:
-            schema = form_service.get(state.form.schema_id)
+            schema = schema_for_session(state)
             state.form = form_service.populate(schema, state.documents)
             state.form.validation_issues = validate_form(
                 schema, state.form, state.documents
@@ -161,7 +170,7 @@ ABCPK1234F"""
     def add_demo(state):
         state.documents = documents
         if state.form:
-            schema = form_service.get(state.form.schema_id)
+            schema = schema_for_session(state)
             state.form = form_service.populate(schema, state.documents)
             state.form.validation_issues = validate_form(
                 schema, state.form, state.documents
@@ -175,6 +184,40 @@ def list_forms():
     return [form_service.as_public_summary(schema) for schema in form_service.list()]
 
 
+@app.post("/api/sessions/{session_id}/form-template", response_model=SessionState)
+async def upload_form_template(
+    session_id: str, file: Annotated[UploadFile, File()]
+) -> SessionState:
+    session = session_store.get(session_id)
+    filename = file.filename or "form.pdf"
+    media_type = file.content_type or "application/octet-stream"
+    if media_type != "application/pdf" and not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=415, detail="Upload a PDF AcroForm.")
+    content = await file.read(settings.upload_limit_mb * 1024 * 1024 + 1)
+    if len(content) > settings.upload_limit_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413, detail="Form exceeds the local upload limit."
+        )
+    try:
+        inspection = pdf_service.inspect_acroform(content, filename)
+    except AcroFormError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    form = form_service.populate(inspection.schema, session.documents)
+    form.validation_issues = validate_form(
+        inspection.schema, form, session.documents
+    )
+    metadata = UploadedFormTemplate(
+        filename=filename,
+        page_count=inspection.page_count,
+        field_count=inspection.field_count,
+        size_bytes=len(content),
+    )
+    return session_store.attach_form_template(
+        session_id, metadata, inspection.schema, form, content
+    )
+
+
 @app.post("/api/sessions/{session_id}/form", response_model=SessionState)
 def select_form(session_id: str, request: SelectFormRequest) -> SessionState:
     try:
@@ -182,13 +225,10 @@ def select_form(session_id: str, request: SelectFormRequest) -> SessionState:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Form schema not found") from exc
 
-    def populate(state):
-        state.form = form_service.populate(schema, state.documents)
-        state.form.validation_issues = validate_form(
-            schema, state.form, state.documents
-        )
-
-    return session_store.mutate(session_id, populate)
+    session = session_store.get(session_id)
+    form = form_service.populate(schema, session.documents)
+    form.validation_issues = validate_form(schema, form, session.documents)
+    return session_store.select_local_schema(session_id, schema, form)
 
 
 @app.patch("/api/sessions/{session_id}/fields/{field_key}", response_model=SessionState)
@@ -198,9 +238,27 @@ def update_field(
     def update(state):
         if not state.form or field_key not in state.form.fields:
             raise HTTPException(status_code=404, detail="Form field not found")
-        state.form.fields[field_key].value = request.value.strip()
-        state.form.fields[field_key].source = "user"
-        schema = form_service.get(state.form.schema_id)
+        field = state.form.fields[field_key]
+        field.value = request.value.strip()
+        field.source = (
+            "user" if field.value else ("conflict" if len(field.options) > 1 else "empty")
+        )
+        selected_option = next(
+            (option for option in field.options if option.value == field.value), None
+        )
+        selected_evidence = (
+            selected_option.evidence[0]
+            if selected_option and selected_option.evidence
+            else None
+        )
+        field.source_document_id = (
+            selected_evidence.document_id if selected_evidence else None
+        )
+        field.source_document_name = (
+            selected_evidence.document_name if selected_evidence else None
+        )
+        field.confidence = selected_evidence.ocr_score if selected_evidence else None
+        schema = schema_for_session(state)
         state.form.validation_issues = validate_form(
             schema, state.form, state.documents
         )
@@ -215,7 +273,7 @@ def validate_session(session_id: str) -> SessionState:
             raise HTTPException(
                 status_code=409, detail="Select a form before validation."
             )
-        schema = form_service.get(state.form.schema_id)
+        schema = schema_for_session(state)
         state.form.validation_issues = validate_form(
             schema, state.form, state.documents
         )
@@ -229,7 +287,7 @@ def execute_voice_command(session_id: str, transcript: str) -> VoiceCommandResul
         raise HTTPException(
             status_code=409, detail="Select a form before using voice commands."
         )
-    schema = form_service.get(session.form.schema_id)
+    schema = schema_for_session(session)
     parsed = intent_parser.parse(transcript, schema)
     intent = parsed["intent"]
     field = parsed.get("field")
@@ -320,13 +378,29 @@ def export_pdf(session_id: str) -> Response:
     session = session_store.get(session_id)
     if not session.form:
         raise HTTPException(status_code=409, detail="Select a form before export.")
-    schema = form_service.get(session.form.schema_id)
-    content = pdf_service.generate(schema, session.form)
+    schema = schema_for_session(session)
+    template = session_store.get_form_template(session_id)
+    try:
+        content = (
+            pdf_service.fill_acroform(template.content, schema, session.form)
+            if template
+            else pdf_service.generate(schema, session.form)
+        )
+    except AcroFormError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    download_name = "docuvoice-completed-form.pdf"
+    if template:
+        safe_stem = "".join(
+            character
+            for character in Path(template.filename).stem
+            if character.isalnum() or character in {"-", "_"}
+        )
+        download_name = f"completed-{safe_stem or 'form'}.pdf"
     return Response(
         content=content,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": 'inline; filename="docuvoice-completed-form.pdf"'
+            "Content-Disposition": f'inline; filename="{download_name}"'
         },
     )
 
